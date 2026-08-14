@@ -1,6 +1,6 @@
 {
   "name": "dsh-store",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "DeepSeek Harness 插件商店：npm 权威源聚合（250+ 插件）+ dsh 字段质量验证 + GitHub 星标，一键安装/卸载（自动合并 cordis.patch.yml），重启生效。",
   "type": "module",
   "main": "lib/index.js",
