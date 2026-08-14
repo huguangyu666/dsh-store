@@ -127,7 +127,9 @@ async function fetchGithubStars() {
   return byName
 }
 
-/** 拉取并解析 awesome-dsh-plugin 精选列表 → [ { name, repo, category, desc } ]（缓存 24h） */
+/** 拉取并解析 awesome-dsh-plugin 精选列表 → [ { name, repo, category, desc } ]（缓存 24h）
+ * 优先 raw CDN；CDN 未同步时回退 GitHub API（实时、权威）
+ */
 async function fetchAwesomeList() {
   const ttl = 24 * 60 * 60 * 1000
   try {
@@ -137,18 +139,39 @@ async function fetchAwesomeList() {
       if (Array.isArray(cached)) return cached
     }
   } catch { /* 无缓存 */ }
-  try {
-    const md = await new Promise((resolve, reject) => {
+
+  // 多来源尝试：raw CDN → GitHub API raw（实时）
+  const sources = [
+    { url: AWESOME_URL },
+    { url: 'https://api.github.com/repos/awesome-dsh-plugin/awesome-dsh-plugin/contents/README.md', headers: { Accept: 'application/vnd.github.raw+json' } },
+  ]
+  let md = ''
+  for (const src of sources) {
+    try {
       const env = { ...process.env }
       if (loadConfig().proxy) { env.HTTPS_PROXY = loadConfig().proxy; env.HTTP_PROXY = loadConfig().proxy }
-      execFile('curl', ['-sS', '--max-time', '30', AWESOME_URL], {
-        encoding: 'utf8', env, windowsHide: true, timeout: 40000,
-      }, (err, stdout, stderr) => {
-        if (err || !stdout) return reject(new Error('awesome 拉取失败' + (stderr ? '：' + stderr.slice(0, 150) : '')))
-        resolve(stdout)
+      const args = ['-sS', '--max-time', '30']
+      for (const [k, v] of Object.entries(src.headers ?? {})) args.push('-H', `${k}: ${v}`)
+      args.push(src.url)
+      md = await new Promise((resolve, reject) => {
+        execFile('curl', args, { encoding: 'utf8', env, windowsHide: true, timeout: 40000 }, (err, stdout, stderr) => {
+          if (err || !stdout || !stdout.includes('### ')) return reject(new Error('拉取失败' + (stderr ? '：' + stderr.slice(0, 150) : '')))
+          resolve(stdout)
+        })
       })
-    })
-    const items = []
+      break
+    } catch (e) {
+      console.warn(`[plugin-store] awesome 来源 ${src.url.slice(0, 55)} 失败:`, e.message)
+    }
+  }
+  if (!md) {
+    try {
+      const cached = JSON.parse(readFileSync(AWESOME_CACHE, 'utf8'))
+      if (Array.isArray(cached)) return cached
+    } catch { /* 无缓存 */ }
+    return []
+  }
+  const items = []
     let curCat = ''
     for (const line of md.split('\n')) {
       const catM = line.match(/^### (.+)/)
@@ -163,16 +186,8 @@ async function fetchAwesomeList() {
         })
       }
     }
-    writeFileSync(AWESOME_CACHE, JSON.stringify(items, null, 2))
-    return items
-  } catch (e) {
-    console.warn('[plugin-store] awesome 精选列表拉取失败:', e.message)
-    try {
-      const cached = JSON.parse(readFileSync(AWESOME_CACHE, 'utf8'))
-      if (Array.isArray(cached)) return cached
-    } catch { /* 无缓存 */ }
-    return []
-  }
+  writeFileSync(AWESOME_CACHE, JSON.stringify(items, null, 2))
+  return items
 }
 
 /** 验证包确实是 dsh 插件（package.json 有 dsh 字段），带 7 天缓存 */
