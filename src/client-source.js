@@ -4,7 +4,6 @@
  * 入口组件复用 dsh 设计系统变量（--dsw-*），明暗自适应。
  */
 const React = require("react");
-const { useState } = React;
 
 /** 侧边栏入口按钮：点击打开商店页面 */
 function StoreButton() {
@@ -24,16 +23,15 @@ function StoreButton() {
 
 /** 设置页分区：简洁入口 + 说明 */
 function StoreSettingsSection() {
-  const [open, setOpen] = useState(false);
   const dim = "var(--dsw-alias-label-secondary)";
   const text = "var(--dsw-alias-label-primary)";
   const btn = "var(--dsw-alias-button-info-fill)";
   return React.createElement("div", { style: { padding: "8px 0", fontSize: "13px" } },
     React.createElement("p", { style: { color: dim, margin: "0 0 10px" } },
-      "聚合 npm registry + awesome-dsh-plugin 精选列表的插件目录（520+ 插件、分类、星标、质量验证），一键安装 / 卸载。"),
+      "聚合 npm registry + awesome 精选 + 自动雷达的插件目录（550+ 插件、分类、星标、运行级验证），一键安装 / 卸载。"),
     React.createElement("button", {
       style: {
-        background: btn, border: "none", color: "#fff", borderRadius: "8px",
+        background: btn, border: "none", color: "var(--dsw-alias-label-inverse, #fff)", borderRadius: "8px",
         padding: "8px 20px", fontSize: "13px", cursor: "pointer",
         fontFamily: "var(--dsw-font-family, inherit)",
       },
