@@ -97,6 +97,16 @@ const cmdRes = await commands.get('plugin-store').handler({ rawInput: '' })
 check('命令返回摘要', cmdRes?.kind === 'success' && cmdRes.text.includes('plugin-store'))
 
 console.log(`\n结果: ${pass} 通过 / ${fail} 失败`)
+// 5. AdamPlatin123 雷达集成检查（真实拉取）
+const radarRes = mockRes()
+await routes.get('/plugin-store/api/catalog').handler({}, radarRes)
+const radarCat = JSON.parse(radarRes.body)
+const radarCount = radarCat.plugins?.filter((p) => p.radarStatus).length ?? 0
+console.log('INFO 带雷达状态条目:', radarCount)
+check('雷达状态已合并（>0）', radarCount > 0)
+const sess = radarCat.plugins?.find((p) => p.name === 'dsh-plugin-session-import')
+check('session-import 有雷达状态', !!sess?.radarStatus, sess?.radarStatus ?? '')
+
 process.exit(fail === 0 ? 0 : 1)
 
 function mockReq(body) {
@@ -108,3 +118,4 @@ function mockRes() {
   res.end = (data) => { res.body = data.toString() }
   return res
 }
+

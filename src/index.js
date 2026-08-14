@@ -190,6 +190,36 @@ async function fetchAwesomeList() {
   return items
 }
 
+/** 拉取 AdamPlatin123 自动雷达的验证状态 → Map<repo, status>（✅ 运行级可用 / ⏳ 未测 / ❌ 失败等） */
+async function fetchRadarStatus() {
+  const url = 'https://raw.githubusercontent.com/AdamPlatin123/awesome-dsh-plugins/main/README.md'
+  let md = ''
+  try {
+    const env = { ...process.env }
+    if (loadConfig().proxy) { env.HTTPS_PROXY = loadConfig().proxy; env.HTTP_PROXY = loadConfig().proxy }
+    md = await new Promise((resolve, reject) => {
+      execFile('curl', ['-sS', '--max-time', '30', url], { encoding: 'utf8', env, windowsHide: true, timeout: 40000 }, (err, stdout, stderr) => {
+        if (err || !stdout) return reject(new Error('雷达拉取失败' + (stderr ? '：' + stderr.slice(0, 150) : '')))
+        resolve(stdout)
+      })
+    })
+  } catch (e) {
+    console.warn('[plugin-store] AdamPlatin123 雷达拉取失败（跳过）:', e.message)
+    return new Map()
+  }
+  // 表格行：| [name](https://github.com/owner/repo) | 社区/官方 | ✅ 运行级可用 | desc |
+  const statusByRepo = new Map()
+  for (const line of md.split('\n')) {
+    const m = line.match(/^\|\s*\[[^\]]+\]\(https:\/\/github\.com\/([^)\s]+)\)\s*\|\s*[^|]+\|\s*([^|]+?)\s*\|/)
+    if (m) {
+      const repo = m[1].replace(/\/+$/, '').replace(/#.*$/, '')
+      const status = m[2].trim()
+      statusByRepo.set(repo.toLowerCase(), status)
+    }
+  }
+  return statusByRepo
+}
+
 /** 验证包确实是 dsh 插件（package.json 有 dsh 字段），带 7 天缓存 */
 async function verifyDshField(pkgName) {
   const safe = pkgName.replace(/[^a-zA-Z0-9-_@]/g, '_')
@@ -273,7 +303,7 @@ function refreshCatalog(force = false) {
           }
         } catch { /* 无缓存或损坏 */ }
       }
-      const [npmEntries, ghMap, awesome] = await Promise.all([fetchNpmEntries(), fetchGithubStars(), fetchAwesomeList()])
+      const [npmEntries, ghMap, awesome, radar] = await Promise.all([fetchNpmEntries(), fetchGithubStars(), fetchAwesomeList(), fetchRadarStatus()])
 
       // awesome 精选索引：repo/name → 分类+描述
       const awesomeByRepo = new Map()
@@ -301,6 +331,9 @@ function refreshCatalog(force = false) {
           e.curated = true
           if (!e.description) e.description = aw.desc
         }
+        // AdamPlatin123 雷达验证状态（✅ 运行级可用等）
+        const radarStatus = radar.get(key) || radar.get(e.name.toLowerCase())
+        if (radarStatus) e.radarStatus = radarStatus
       }
 
       // awesome 里有但 npm 上搜不到的精选仓库 → 追加为展示条目（可跳 GitHub，标注未上 npm）
@@ -322,6 +355,7 @@ function refreshCatalog(force = false) {
           curated: true,
           stars: 0,
           installable: false,          // 未上 npm，不可一键安装
+          ...radar.get(key) ? { radarStatus: radar.get(key) } : {},
         })
       }
 
