@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.4.1] - 2026-08-14
+## [Unreleased]
+
+### Added
+- AdamPlatin123 自动雷达验证状态集成（194+ 条目显示 ✅ 运行级可用）
+- 商店 UI 重写为 dsh 原生风格（--dsw-alias-* token，去渐变/彩色徽章/卡片上浮）
+- client 组件：emoji 换 SVG 图标、文字色用 token、清理未用 state
+- 测试 22 项（含未上 npm 拒绝边界、雷达合并）
+
+### Fixed
+- codex/雷达相关无（见各插件）
+
+## [0.4.1] - 2026-08-14 - 2026-08-14
 
 ### Fixed
 - awesome 拉取 raw CDN 未同步时回退 GitHub API（实时源），解决合并后商店看不到新条目
