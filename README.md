@@ -1,6 +1,8 @@
-# dsh-plugin-store
+# dsh-store
 
 DeepSeek Harness 插件商店：**上游基础设施**。聚合 npm registry + GitHub 上的 dsh 插件，质量验证 + 星标排序，在 dsh 内一键安装 / 卸载（自动改 `cordis.patch.yml`），装完重启即生效。
+
+> 与社区 `dsh-plugin-store`（仅 GitHub topic 源）的差异化：**npm registry 权威数据源**（关键词精确搜索，250+ 插件）+ **`dsh` 字段质量验证**（后台剔除蹭关键词的噪声包）+ 已安装状态标记。
 
 ## 功能
 

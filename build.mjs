@@ -14,7 +14,7 @@ execSync(
   { stdio: 'inherit' })
 
 const host = readFileSync('lib/index.js', 'utf8')
-if (!host.includes('dsh-plugin-store')) throw new Error('host bundle 缺关键符号')
+if (!host.includes('dsh-store')) throw new Error('host bundle 缺关键符号')
 if (!host.includes('plugin-store/api/catalog')) throw new Error('host bundle 缺 API 路由')
 if (!host.includes('keywords:dsh-plugin')) throw new Error('host bundle 缺目录数据源')
 console.log('构建完成：lib/index.js')

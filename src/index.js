@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'no
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const name = 'dsh-plugin-store'
+export const name = 'dsh-store'
 
 export const inject = ['commands', 'webServer']
 
@@ -32,6 +32,8 @@ const CATALOG_TTL = 24 * 60 * 60 * 1000
 const VERIFY_TTL = 7 * 24 * 60 * 60 * 1000
 const NPM_SEARCH_URL = 'https://registry.npmjs.org/-/v1/search?text=keywords:dsh-plugin&size=250'
 const GH_SEARCH_URL = 'https://api.github.com/search/repositories?q=topic%3Adsh-plugin&sort=stars&per_page=100'
+const AWESOME_URL = 'https://raw.githubusercontent.com/awesome-dsh-plugin/awesome-dsh-plugin/main/README.md'
+const AWESOME_CACHE = join(homeDir, '.dsh', 'plugin-store', 'awesome.json')
 
 // ── 配置 ──
 let _config = null
@@ -108,7 +110,7 @@ async function fetchNpmEntries() {
 async function fetchGithubStars() {
   const byName = new Map()
   try {
-    const data = await httpGetJson(GH_SEARCH_URL, { headers: { 'User-Agent': 'dsh-plugin-store', Accept: 'application/vnd.github+json' }, proxy: true })
+    const data = await httpGetJson(GH_SEARCH_URL, { headers: { 'User-Agent': 'dsh-store', Accept: 'application/vnd.github+json' }, proxy: true })
     for (const r of data.items ?? []) {
       byName.set(r.full_name.toLowerCase(), {
         fullName: r.full_name,
@@ -123,6 +125,54 @@ async function fetchGithubStars() {
     console.warn('[plugin-store] GitHub 星标获取失败（目录仍可用）:', e.message)
   }
   return byName
+}
+
+/** 拉取并解析 awesome-dsh-plugin 精选列表 → [ { name, repo, category, desc } ]（缓存 24h） */
+async function fetchAwesomeList() {
+  const ttl = 24 * 60 * 60 * 1000
+  try {
+    const st = statSync(AWESOME_CACHE)
+    if (Date.now() - st.mtimeMs < ttl) {
+      const cached = JSON.parse(readFileSync(AWESOME_CACHE, 'utf8'))
+      if (Array.isArray(cached)) return cached
+    }
+  } catch { /* 无缓存 */ }
+  try {
+    const md = await new Promise((resolve, reject) => {
+      const env = { ...process.env }
+      if (loadConfig().proxy) { env.HTTPS_PROXY = loadConfig().proxy; env.HTTP_PROXY = loadConfig().proxy }
+      execFile('curl', ['-sS', '--max-time', '30', AWESOME_URL], {
+        encoding: 'utf8', env, windowsHide: true, timeout: 40000,
+      }, (err, stdout, stderr) => {
+        if (err || !stdout) return reject(new Error('awesome 拉取失败' + (stderr ? '：' + stderr.slice(0, 150) : '')))
+        resolve(stdout)
+      })
+    })
+    const items = []
+    let curCat = ''
+    for (const line of md.split('\n')) {
+      const catM = line.match(/^### (.+)/)
+      if (catM) { curCat = catM[1].trim(); continue }
+      const m = line.match(/^\- \[([^\]]+)\]\(https:\/\/github\.com\/([^)\)]+)\)\s*-\s*(.*)$/)
+      if (m) {
+        items.push({
+          name: m[1],
+          repo: m[2].replace(/\/+$/, ''),
+          category: curCat,
+          desc: m[3].trim(),
+        })
+      }
+    }
+    writeFileSync(AWESOME_CACHE, JSON.stringify(items, null, 2))
+    return items
+  } catch (e) {
+    console.warn('[plugin-store] awesome 精选列表拉取失败:', e.message)
+    try {
+      const cached = JSON.parse(readFileSync(AWESOME_CACHE, 'utf8'))
+      if (Array.isArray(cached)) return cached
+    } catch { /* 无缓存 */ }
+    return []
+  }
 }
 
 /** 验证包确实是 dsh 插件（package.json 有 dsh 字段），带 7 天缓存 */
@@ -162,7 +212,7 @@ async function runPool(items, worker, size = 5) {
 const CURATED_VERIFIED = [
   'dsh-plugin-session-import',
   'dsh-plugin-notify',
-  'dsh-plugin-store',
+  'dsh-store',
   'create-dsh-plugin',
 ]
 
@@ -208,7 +258,14 @@ function refreshCatalog(force = false) {
           }
         } catch { /* 无缓存或损坏 */ }
       }
-      const [npmEntries, ghMap] = await Promise.all([fetchNpmEntries(), fetchGithubStars()])
+      const [npmEntries, ghMap, awesome] = await Promise.all([fetchNpmEntries(), fetchGithubStars(), fetchAwesomeList()])
+
+      // awesome 精选索引：repo/name → 分类+描述
+      const awesomeByRepo = new Map()
+      for (const a of awesome) {
+        awesomeByRepo.set(a.repo.toLowerCase(), a)
+        awesomeByRepo.set(a.name.toLowerCase(), a)
+      }
 
       // GitHub 星标合并（按包名 / 仓库名匹配）
       for (const e of npmEntries) {
@@ -222,6 +279,35 @@ function refreshCatalog(force = false) {
           if (!e.author) e.author = gh.author
           e.homepage = e.homepage || gh.htmlUrl
         }
+        // awesome 精选叠加：分类 + 精选徽章
+        const aw = awesomeByRepo.get(key) || awesomeByRepo.get(e.name.toLowerCase())
+        if (aw) {
+          e.category = aw.category
+          e.curated = true
+          if (!e.description) e.description = aw.desc
+        }
+      }
+
+      // awesome 里有但 npm 上搜不到的精选仓库 → 追加为展示条目（可跳 GitHub，标注未上 npm）
+      const npmRepoNames = new Set(npmEntries.map((e) => e.repo.toLowerCase()).filter(Boolean))
+      const npmPkgNames = new Set(npmEntries.map((e) => e.name.toLowerCase()))
+      const extraCurated = []
+      for (const a of awesome) {
+        const key = a.repo.toLowerCase()
+        if (npmRepoNames.has(key) || npmPkgNames.has(a.name.toLowerCase())) continue
+        extraCurated.push({
+          name: a.name,
+          packageName: '',            // 未上 npm，无包名
+          version: '',
+          description: a.desc,
+          author: a.repo.split('/')[0],
+          repo: a.repo,
+          homepage: `https://github.com/${a.repo}`,
+          category: a.category,
+          curated: true,
+          stars: 0,
+          installable: false,          // 未上 npm，不可一键安装
+        })
       }
 
       // 钦定已验证
@@ -229,8 +315,14 @@ function refreshCatalog(force = false) {
         if (CURATED_VERIFIED.includes(e.name)) e.verified = true
       }
 
-      const plugins = npmEntries.sort((a, b) => b.stars - a.stars)
-      const catalog = { generatedAt: Date.now(), verifyComplete: false, count: plugins.length, plugins }
+      const plugins = [...npmEntries, ...extraCurated].sort((a, b) => b.stars - a.stars)
+      const catalog = {
+        generatedAt: Date.now(),
+        verifyComplete: false,
+        count: plugins.length,
+        curatedCount: extraCurated.length,
+        plugins,
+      }
       writeFileSync(CATALOG_FILE, JSON.stringify(catalog, null, 2))
       startBackgroundVerify(catalog)
       return catalog
@@ -431,6 +523,8 @@ main { max-width: 1160px; margin: 0 auto; padding: 24px 28px; }
 .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; flex: none; }
 .badge.verified { background: rgba(79, 140, 255, .15); color: var(--accent); }
 .badge.installed { background: rgba(63, 185, 111, .15); color: var(--ok); }
+.badge.curated { background: rgba(227, 179, 65, .16); color: #e3b341; }
+.badge.nonpm { background: rgba(139, 147, 163, .15); color: var(--dim); }
 .desc { color: var(--dim); font-size: 12.5px; min-height: 38px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meta { display: flex; gap: 12px; color: var(--dim2); font-size: 11.5px; align-items: center; }
@@ -467,6 +561,7 @@ main { max-width: 1160px; margin: 0 auto; padding: 24px 28px; }
     <button class="tab" data-sort="date">最新</button>
     <button class="tab" data-sort="name">名称</button>
   </div>
+  <select id="cat" style="background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12.5px;outline:none"><option value="">全部分类</option></select>
   <span class="count" id="count"></span>
   <button class="inst-btn ghost" id="refresh">刷新目录</button>
 </header>
@@ -477,8 +572,11 @@ main { max-width: 1160px; margin: 0 auto; padding: 24px 28px; }
 <div id="modal-root"></div>
 <script>
 var $ = function (s) { return document.querySelector(s); };
-var state = { plugins: [], q: '', sort: 'stars', busy: new Set() };
+var state = { plugins: [], q: '', sort: 'stars', cat: '' };
 var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+var CATS = ['UI Enhancements', 'Themes & Appearance', 'Sessions & Messages', 'Memory', 'Tools & Capabilities', 'Skills', 'Workflow & Automation', 'Notifications & Integrations', 'Models & Providers', 'Development & Runtime', 'Just for Fun']
+var CAT_ZH = { 'UI Enhancements': '界面增强', 'Themes & Appearance': '主题外观', 'Sessions & Messages': '会话消息', 'Memory': '记忆', 'Tools & Capabilities': '工具能力', 'Skills': '技能', 'Workflow & Automation': '工作流自动化', 'Notifications & Integrations': '通知集成', 'Models & Providers': '模型提供方', 'Development & Runtime': '开发运行时', 'Just for Fun': '整活' }
+function catZh(c) { return CAT_ZH[c] || c; }
 
 function banner(msg, isErr) {
   var b = $('#banner');
@@ -490,9 +588,10 @@ function hideBanner() { $('#banner').classList.remove('show'); }
 
 function render() {
   var list = state.plugins.filter(function (p) {
+    if (state.cat && p.category !== state.cat) return false;
     if (!state.q) return true;
     var q = state.q.toLowerCase();
-    return (p.name + ' ' + (p.description || '') + ' ' + (p.author || '')).toLowerCase().indexOf(q) >= 0;
+    return (p.name + ' ' + (p.description || '') + ' ' + (p.author || '') + ' ' + (p.category || '')).toLowerCase().indexOf(q) >= 0;
   });
   if (state.sort === 'stars') list.sort(function (a, b) { return (b.stars || 0) - (a.stars || 0); });
   else if (state.sort === 'date') list.sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); });
@@ -505,17 +604,25 @@ function render() {
     card.className = 'card';
     card.onclick = function (e) { if (e.target.tagName === 'BUTTON') return; openModal(p); };
     var verified = p.verified === true;
+    var curated = p.curated === true;
+    var notNpm = p.installable === false;
     var isInst = p.installed;
     var h = '';
     h += '<div class="card-top"><h3 title="' + esc(p.name) + '">' + esc(p.name) + '</h3>';
+    if (curated) h += '<span class="badge curated">精选</span>';
     if (verified) h += '<span class="badge verified">已验证</span>';
     if (isInst) h += '<span class="badge installed">已安装</span>';
+    if (notNpm) h += '<span class="badge nonpm">未上 npm</span>';
     h += '</div>';
     h += '<div class="desc">' + esc(p.description || '（无描述）') + '</div>';
-    h += '<div class="meta"><span class="star">★ ' + (p.stars || 0) + '</span><span>' + esc(p.author || '未知作者') + '</span><span>v' + esc(p.version || '?') + '</span></div>';
+    h += '<div class="meta">';
+    if (p.category) h += '<span>' + esc(catZh(p.category)) + '</span>';
+    h += '<span class="star">★ ' + (p.stars || 0) + '</span><span>' + esc(p.author || '未知作者') + '</span><span>v' + esc(p.version || '?') + '</span></div>';
     h += '<div class="card-foot">';
     if (isInst) {
       h += '<button class="inst-btn danger" data-act="uninstall" data-name="' + esc(p.name) + '">卸载</button>';
+    } else if (notNpm) {
+      h += '<a class="inst-btn ghost" href="' + esc(p.homepage) + '" target="_blank" style="text-decoration:none">GitHub</a>';
     } else {
       h += '<button class="inst-btn" data-act="install" data-name="' + esc(p.name) + '">安装</button>';
     }
@@ -537,18 +644,21 @@ function openModal(p) {
   mask.className = 'modal-mask';
   mask.onclick = function (e) { if (e.target === mask) root.innerHTML = ''; };
   var h = '<div class="modal">';
-  h += '<h2>' + esc(p.name) + (p.verified === true ? ' <span class="badge verified">已验证</span>' : '') + '</h2>';
+  h += '<h2>' + esc(p.name) + (p.verified === true ? ' <span class="badge verified">已验证</span>' : '') + (p.curated === true ? ' <span class="badge curated">精选</span>' : '') + '</h2>';
+  if (p.category) h += '<div class="meta"><span>' + esc(catZh(p.category)) + '</span></div>';
   h += '<div class="desc-full">' + esc(p.description || '（无描述）') + '</div>';
   h += '<div class="meta"><span class="star">★ ' + (p.stars || 0) + '</span><span>' + esc(p.author || '') + '</span><span>v' + esc(p.version || '?') + '</span><span>' + esc(p.date || '').slice(0, 10) + '</span></div>';
   if (p.homepage) h += '<a href="' + esc(p.homepage) + '" target="_blank">' + esc(p.homepage) + '</a>';
   h += '<div class="card-foot">';
   if (p.installed) {
     h += '<button class="inst-btn danger" data-act="uninstall" data-name="' + esc(p.name) + '">卸载</button>';
+  } else if (p.installable === false) {
+    h += '<a class="inst-btn ghost" href="' + esc(p.homepage) + '" target="_blank" style="text-decoration:none">去 GitHub 查看</a>';
   } else {
     h += '<button class="inst-btn" data-act="install" data-name="' + esc(p.name) + '">安装</button>';
   }
   h += '<span class="status"></span><button class="modal-close" data-act="close">关闭</button></div>';
-  h += '<div class="hint" style="color:var(--dim2);font-size:11.5px">安装后需重启 dsh 生效；卸载同理。重启会中断当前会话连接。</div>';
+  h += '<div class="hint" style="color:var(--dim2);font-size:11.5px">' + (p.installable === false ? '该插件未发布 npm，仅 GitHub 精选，需按仓库 README 手动安装。' : '安装后需重启 dsh 生效；卸载同理。重启会中断当前会话连接。') + '</div>';
   h += '</div>';
   mask.innerHTML = h;
   root.innerHTML = '';
@@ -601,20 +711,39 @@ function load(silent) {
   }
   fetch('/plugin-store/api/catalog').then(function (r) { return r.json(); }).then(function (d) {
     state.plugins = d.plugins || [];
+    populateCats();
     render();
     if (d.stale) banner('目录是缓存（' + new Date(d.generatedAt).toLocaleString() + '），点击「刷新目录」获取最新', false);
+    else if (d.curatedCount) banner('已接入 awesome 精选列表：' + d.curatedCount + ' 个精选（含未上 npm 的 GitHub 精选）', false);
   }).catch(function (e) {
     $('#grid').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>';
   });
 }
 
+function populateCats() {
+  var sel = $('#cat');
+  var seen = {};
+  var html = '<option value="">全部分类</option>';
+  for (var i = 0; i < state.plugins.length; i++) {
+    var c = state.plugins[i].category;
+    if (!c || seen[c]) continue;
+    seen[c] = 1;
+    html += '<option value="' + esc(c) + '">' + esc(catZh(c)) + '</option>';
+  }
+  var prev = sel.value;
+  sel.innerHTML = html;
+  sel.value = prev || '';
+}
+
 $('#q').oninput = function () { state.q = this.value; render(); };
+$('#cat').onchange = function () { state.cat = this.value; render(); };
 $('#refresh').onclick = function () {
   var b = $('#refresh'); b.disabled = true; b.textContent = '刷新中…';
   fetch('/plugin-store/api/refresh', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
     state.plugins = d.plugins || [];
+    populateCats();
     render();
-    banner('目录已更新，共 ' + (d.count || 0) + ' 个插件');
+    banner('目录已更新，共 ' + (d.count || 0) + ' 个插件（含精选 ' + (d.curatedCount || 0) + '）');
   }).catch(function (e) { banner('刷新失败: ' + e.message, true); }).finally(function () { b.disabled = false; b.textContent = '刷新目录'; });
 };
 var tabs = document.querySelectorAll('.tab');
@@ -725,8 +854,13 @@ export function apply(ctx) {
           const entryName = String(body.name ?? '').trim()
           if (!entryName) { sendJson(res, 400, { error: '缺少插件名' }); return }
           const catalog = readCatalogCache()
-          const entry = catalog?.plugins?.find((p) => p.name === entryName)
+          const entry = catalog?.plugins?.find((p) => p.name === entryName || p.packageName === entryName)
             ?? { name: entryName, repo: '', installKind: 'npm' }
+          // 未上 npm 的精选条目（installable:false）不可一键安装
+          if (kind === 'install' && entry.installable === false) {
+            sendJson(res, 400, { error: `该插件未发布 npm（仅 GitHub 精选），请到 ${entry.homepage} 按 README 手动安装` })
+            return
+          }
           const result = kind === 'install' ? installPlugin(entry) : uninstallPlugin(entry)
           sendJson(res, 200, result)
         } catch (e) {

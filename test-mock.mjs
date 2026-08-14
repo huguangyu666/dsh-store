@@ -54,6 +54,10 @@ const hasStars = catalog.plugins?.some((p) => (p.stars ?? 0) > 0)
 console.log('INFO 有星标数据:', hasStars ? '是（GitHub 合并成功）' : '否（GitHub 可能被墙，星标为 0，不影响安装）')
 const sorted = catalog.plugins ?? []
 check('按星标排序', sorted.every((p, i) => i === 0 || sorted[i - 1].stars >= p.stars))
+check('awesome 精选已合并（curated 条目 > 0）', (catalog.plugins?.filter((p) => p.curated === true).length ?? 0) > 0)
+check('分类已打（category 条目 > 0）', (catalog.plugins?.filter((p) => !!p.category).length ?? 0) > 0)
+const nonNpm = catalog.plugins?.filter((p) => p.installable === false) ?? []
+console.log('INFO 未上 npm 的精选条目:', nonNpm.length, '（这些显示为 GitHub 跳转，不可一键安装）')
 
 // 3. 安装引擎（真实 pnpm add 到隔离 profile）
 const instRes = mockRes()
