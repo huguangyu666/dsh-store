@@ -1,7 +1,7 @@
 {
-  "name": "dsh-plugin-store",
+  "name": "dsh-store",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 插件商店：聚合 npm + GitHub 的 dsh 插件目录（质量验证 + 星标排序），在 dsh 内一键安装/卸载（自动改 cordis.patch.yml），装完重启即生效。",
+  "description": "DeepSeek Harness 插件商店：npm 权威源聚合（250+ 插件）+ dsh 字段质量验证 + GitHub 星标，一键安装/卸载（自动合并 cordis.patch.yml），重启生效。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -28,7 +28,7 @@
   "author": "huguangyu666",
   "repository": {
     "type": "git",
-    "url": "https://github.com/huguangyu666/dsh-plugin-store.git"
+    "url": "https://github.com/huguangyu666/dsh-store.git"
   },
   "engines": {
     "node": ">=22.5"
