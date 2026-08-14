@@ -98,7 +98,7 @@ profile patch（`~/.dsh/profiles/<profile>/cordis.patch.yml`）：
 
 ```bash
 npm run build      # esbuild 构建 lib/index.js + lib/client.js
-node test-mock.mjs # mock + 集成测试（隔离 profile，真实 pnpm 安装/卸载，21 项）
+node test-mock.mjs # mock + 集成测试（隔离 profile，真实 pnpm 安装/卸载，22 项）
 ```
 
 ## 许可
