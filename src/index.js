@@ -377,7 +377,25 @@ function readProfilePatch() {
   return { path, text: '- insert: []\n' }
 }
 
-/** 执行包管理器命令；返回原始结果，成败由调用方按文件系统验证 */
+/** 定位 dsh 启动脚本（当前进程 argv[1]，通常 .../dsh/lib/bin.js） */
+function dshBinPath() {
+  return process.argv[1] || ''
+}
+
+/** 官方 dsh plugin 命令：dsh plugin --profile <name> <add|remove> <pkg> */
+function runOfficialDshPlugin(args) {
+  const bin = dshBinPath()
+  if (!/bin\.js/.test(bin)) return { ok: false, reason: '无法定位 dsh bin.js' }
+  const profile = loadConfig().profile
+  const r = spawnSync(process.execPath, [bin, 'plugin', '--profile', profile, ...args], {
+    encoding: 'utf8', timeout: 300000, windowsHide: true, env: { ...process.env },
+  })
+  if (r.error) return { ok: false, reason: r.error.message }
+  // dsh plugin 转发 pnpm，退出码 0 视为成功（pnpm 11 构建脚本警告也可能非 0，以 bundles 验证为准）
+  return { ok: r.status === 0, exitCode: r.status, stdout: r.stdout, stderr: r.stderr }
+}
+
+/** 执行包管理器命令（手写回退路径）；返回原始结果，成败由调用方按文件系统验证 */
 function runPm(args, cwd) {
   const npmArgs = args[0] === 'add'
     ? ['--no-package-lock', 'install', '--save', args[args.length - 1]]
@@ -399,16 +417,33 @@ function runPm(args, cwd) {
   throw new Error(`包管理器执行失败: ${lastErr}`)
 }
 
-/** 安装一个插件：包管理器安装（以文件落地为准）+ 自动合并 patch */
+/** 读取 profile 的 dsh.profile.bundles 列表 */
+function readProfileBundles() {
+  try {
+    const pkgJson = JSON.parse(readFileSync(join(getProfileDir(), 'package.json'), 'utf8'))
+    return [...(pkgJson.dsh?.profile?.bundles ?? [])]
+  } catch {
+    return []
+  }
+}
+
+/** 安装一个插件：优先官方 dsh plugin add（进 bundles 层），失败回退手写 pnpm + patch 合并 */
 function installPlugin(entry) {
   const profileDir = getProfileDir()
   if (!existsSync(profileDir)) throw new Error(`profile 目录不存在: ${profileDir}`)
+
+  // 路径 1：官方 dsh plugin add → 自动 reconcile dsh.profile.bundles
+  const official = runOfficialDshPlugin(['add', entry.name])
+  if (official.ok && readProfileBundles().includes(entry.name)) {
+    return { ok: true, name: entry.name, via: 'dsh plugin add', restartRequired: true }
+  }
+
+  // 路径 2：手写 pnpm + patch 合并（官方不可用或未生效时回退）
   const r = runPm(['add', entry.name], profileDir)
   const pkgDir = join(profileDir, 'node_modules', entry.name)
   if (!existsSync(join(pkgDir, 'package.json'))) {
     throw new Error(`安装失败（${r.cmd} 退出码 ${r.exitCode}）：${(r.stderr || r.stdout || '').slice(0, 300)}`)
   }
-  // 读插件自带的 patch 合并（不存在则退回用名字推导 id）
   const pluginPatchPath = join(pkgDir, 'cordis.patch.yml')
   let rows = []
   if (existsSync(pluginPatchPath)) {
@@ -421,32 +456,41 @@ function installPlugin(entry) {
   let text = patch.text
   for (const row of rows) text = mergeRowIntoPatch(text, row)
   writeFileSync(patch.path, text)
-  return { ok: true, name: entry.name, rows, restartRequired: true, pm: r.cmd }
+  return { ok: true, name: entry.name, rows, restartRequired: true, via: r.cmd }
 }
 
-/** 卸载插件：包管理器移除（以文件消失为准）+ 从 patch 删除对应行 */
+/** 卸载插件：优先官方 dsh plugin remove，失败回退手写；同时清理 patch 残留行 */
 function uninstallPlugin(entry) {
   const profileDir = getProfileDir()
-  runPm(['remove', entry.name], profileDir)
+  const official = runOfficialDshPlugin(['remove', entry.name])
+  if (!official.ok) {
+    runPm(['remove', entry.name], profileDir)
+  }
+  // 无论哪条路径，都清理手写 patch 里的残留行（防重复）
   const patch = readProfilePatch()
   const nameRe = new RegExp(`\\s*- id: [^\\n]*\\n\\s*name: '${entry.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'\\n?`, 'g')
   const text = patch.text.replace(nameRe, '')
   writeFileSync(patch.path, text)
-  return { ok: true, name: entry.name, restartRequired: true }
+  return { ok: true, name: entry.name, restartRequired: true, via: official.ok ? 'dsh plugin remove' : 'pnpm' }
 }
 
-/** 已安装列表：profile package.json 依赖 + patch 行 */
+/** 已安装列表：dsh.profile.bundles + 依赖 + patch 行 三源合并 */
 function installedPlugins() {
   const profileDir = getProfileDir()
   const installed = []
+  // 源 1：dsh.profile.bundles（官方 dsh plugin add 路径）
+  for (const b of readProfileBundles()) {
+    if (!installed.includes(b)) installed.push(b)
+  }
+  // 源 2：package.json dependencies（手写 pnpm 路径）
   try {
     const pkgJson = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
     for (const dep of Object.keys(pkgJson.dependencies ?? {})) {
-      if (dep.startsWith('dsh-') || dep.startsWith('@')) installed.push(dep)
+      if ((dep.startsWith('dsh-') || dep.startsWith('@')) && !installed.includes(dep)) installed.push(dep)
     }
   } catch { /* 无 package.json */ }
-  const patch = readProfilePatch()
-  const rows = parseInsertRows(patch.text)
+  // 源 3：patch 行（纯 cordis.patch.yml insert 路径）
+  const rows = parseInsertRows(readProfilePatch().text)
   for (const row of rows) {
     if (!installed.includes(row.name)) installed.push(row.name)
   }
