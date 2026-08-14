@@ -92,6 +92,16 @@ const pkg3 = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
 check('卸载后 patch 清理', !patch3.includes('dsh-plugin-notify'))
 check('卸载后依赖清理', !pkg3.dependencies?.['dsh-plugin-notify'])
 
+// 3.5 未上 npm 的条目不可安装（返回 400）
+const nonNpmEntry = cat2.plugins?.find((p) => p.installable === false)
+if (nonNpmEntry) {
+  const rejectRes = mockRes()
+  await routes.get('/plugin-store/api/install').handler(mockReq({ name: nonNpmEntry.name }), rejectRes)
+  check('未上 npm 安装被拒（400）', rejectRes.statusCode === 400, JSON.stringify(JSON.parse(rejectRes.body || '{}')))
+} else {
+  console.log('INFO 无未上 npm 条目可测，跳过')
+}
+
 // 4. 命令
 const cmdRes = await commands.get('plugin-store').handler({ rawInput: '' })
 check('命令返回摘要', cmdRes?.kind === 'success' && cmdRes.text.includes('plugin-store'))
