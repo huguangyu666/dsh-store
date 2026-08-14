@@ -387,8 +387,17 @@ function runOfficialDshPlugin(args) {
   const bin = dshBinPath()
   if (!/bin\.js/.test(bin)) return { ok: false, reason: '无法定位 dsh bin.js' }
   const profile = loadConfig().profile
+  // 显式注入代理（dsh 进程 env 可能没有 HTTPS_PROXY，pnpm 无代理会挂起）
+  const env = { ...process.env }
+  const proxy = loadConfig().proxy
+  if (proxy) {
+    if (!env.HTTPS_PROXY) env.HTTPS_PROXY = proxy
+    if (!env.HTTP_PROXY) env.HTTP_PROXY = proxy
+    if (!env.https_proxy) env.https_proxy = proxy
+    if (!env.http_proxy) env.http_proxy = proxy
+  }
   const r = spawnSync(process.execPath, [bin, 'plugin', '--profile', profile, ...args], {
-    encoding: 'utf8', timeout: 300000, windowsHide: true, env: { ...process.env },
+    encoding: 'utf8', timeout: 300000, windowsHide: true, env,
   })
   if (r.error) return { ok: false, reason: r.error.message }
   // dsh plugin 转发 pnpm，退出码 0 视为成功（pnpm 11 构建脚本警告也可能非 0，以 bundles 验证为准）
