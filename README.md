@@ -77,6 +77,7 @@ profile patch（`~/.dsh/profiles/<profile>/cordis.patch.yml`）：
 | `registry.npmjs.org/-/v1/search?text=keywords:dsh-plugin` | 插件清单（权威，可安装） |
 | `awesome-dsh-plugin` 精选列表 | 分类 + 精选徽章（324 个，人工审核） |
 | `api.github.com/search/repositories?q=topic:dsh-plugin` | 星标 / 仓库 / 更新信息合并 |
+| `AdamPlatin123/awesome-dsh-plugins` 雷达 | 运行级验证状态（✅ 运行级可用等，194+ 条目） |
 
 **质量验证**：安装前后台逐个 GET 每个包的 `/latest` 检查 `dsh` 字段（缓存 7 天），无该字段的剔除——npm 关键词搜索会混入蹭关键词的包，这个过滤保证目录里都是真插件。
 
@@ -84,7 +85,7 @@ profile patch（`~/.dsh/profiles/<profile>/cordis.patch.yml`）：
 
 ```
 ┌─ dsh-store ─────────────────────────────────────────────┐
-│ host：catalog 引擎（npm + awesome + GitHub → 合并 → 验证 → 缓存）│
+│ host：catalog 引擎（npm + awesome + 雷达 + GitHub → 合并 → 验证 → 缓存）│
 │       安装引擎（官方 dsh plugin add/remove → 回退 pnpm + patch）│
 │       API：/plugin-store/api/{catalog,refresh,install,uninstall,restart} │
 │ client：侧边栏「插件商店」按钮 + 设置页分区（--dsw-* 变量） │
