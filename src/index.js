@@ -677,7 +677,6 @@ function banner(msg, isErr) {
   b.style.borderColor = isErr ? 'var(--bad)' : '';
   b.classList.add('show');
 }
-function hideBanner() { $('#banner').classList.remove('show'); }
 
 function render() {
   var list = state.plugins.filter(function (p) {
