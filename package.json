@@ -1,0 +1,48 @@
+{
+  "name": "dsh-plugin-store",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 插件商店：聚合 npm + GitHub 的 dsh 插件目录（质量验证 + 星标排序），在 dsh 内一键安装/卸载（自动改 cordis.patch.yml），装完重启即生效。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "store",
+    "marketplace",
+    "plugin-manager"
+  ],
+  "license": "MIT",
+  "author": "huguangyu666",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/huguangyu666/dsh-plugin-store.git"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs"
+  }
+}
