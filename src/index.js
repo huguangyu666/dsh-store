@@ -787,9 +787,11 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 24px; }
   <select id="cat" style="background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12.5px;outline:none"><option value="">全部分类</option></select>
   <span class="count" id="count"></span>
   <button class="inst-btn ghost" id="refresh">刷新目录</button>
+  <button class="inst-btn ghost" id="check-updates">检查更新</button>
 </header>
 <main>
   <div class="banner" id="banner"></div>
+  <div id="update-panel" style="display:none;background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px;margin-bottom:14px"></div>
   <div class="grid" id="grid"></div>
 </main>
 <div id="modal-root"></div>
@@ -962,6 +964,44 @@ function load(silent) {
     $('#grid').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>';
   });
 }
+
+
+function checkUpdates() {
+  var panel = $('#update-panel');
+  var btn = $('#check-updates');
+  btn.disabled = true; btn.textContent = '检查中…';
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="color:var(--dsw-alias-label-secondary);font-size:13px">检查中…</div>';
+  fetch('/plugin-store/api/updates').then(function (r) { return r.json(); }).then(function (d) {
+    var list = (d.updates || []).filter(function (u) { return u.updateAvailable; });
+    btn.disabled = false; btn.textContent = '检查更新';
+    if (list.length === 0) {
+      panel.innerHTML = '<div style="color:var(--dsw-alias-label-secondary);font-size:13px">所有插件都是最新版本 ✓</div>';
+      return;
+    }
+    var h = '<div style="font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:8px">有 ' + list.length + ' 个插件可更新</div>';
+    for (var i = 0; i < list.length; i++) (function (u) {
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l2)">';
+      h += '<span style="flex:1;font-size:13px;color:var(--dsw-alias-label-primary)">' + esc(u.name) + '</span>';
+      h += '<span style="font-size:12px;color:var(--dsw-alias-label-tertiary)">' + esc(u.local) + ' → ' + esc(u.latest) + '</span>';
+      h += '<button class="inst-btn" data-update="' + esc(u.name) + '">更新</button>';
+      h += '</div>';
+    })(list[i]);
+    panel.innerHTML = h;
+    var btns = panel.querySelectorAll('button[data-update]');
+    for (var j = 0; j < btns.length; j++) btns[j].onclick = function () {
+      var name = this.getAttribute('data-update');
+      this.disabled = true; this.textContent = '更新中…';
+      fetch('/plugin-store/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
+        .then(function (r) { return r.json(); }).then(function (x) {
+          if (x.error) { alert('更新失败: ' + x.error); this.disabled = false; this.textContent = '更新'; return; }
+          checkUpdates();
+          banner('已更新 ' + name + '，重启 dsh 生效');
+        });
+    };
+  }).catch(function (e) { btn.disabled = false; btn.textContent = '检查更新'; panel.innerHTML = '<div style="color:var(--dsw-alias-label-error)">检查失败: ' + esc(e.message) + '</div>'; });
+}
+$('#check-updates').onclick = checkUpdates;
 
 function populateCats() {
   var sel = $('#cat');
