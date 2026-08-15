@@ -577,6 +577,32 @@ const PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dsh 插件商店</title>
 <style>
+/* 独立页面兜底：dsh 设计变量不在独立页注入，这里补一套暗色值（与主界面 force-dark 一致） */
+:root {
+  --dsw-alias-bg-base: rgb(21, 21, 23);
+  --dsw-alias-label-primary: rgb(249, 250, 251);
+  --dsw-alias-label-secondary: rgb(207, 211, 214);
+  --dsw-alias-label-tertiary: rgb(173, 178, 184);
+  --dsw-alias-border-l2: rgba(255, 255, 255, .12);
+  --dsw-alias-bg-module-platform: rgb(53, 54, 56);
+  --dsw-alias-bg-layer-2: rgb(44, 44, 46);
+  --dsw-alias-bg-mask-3: rgba(0, 0, 0, .48);
+  --dsw-alias-button-info-fill: rgb(103, 158, 254);
+  --dsw-alias-button-info-hover: rgb(65, 118, 230);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, .08);
+  --dsw-alias-interactive-bg-primary: rgba(103, 158, 254, .15);
+  --dsw-alias-brand-primary: rgb(249, 250, 251);
+  --dsw-alias-state-success-primary: rgb(34, 197, 94);
+  --dsw-alias-state-success-tertiary: rgb(35, 60, 44);
+  --dsw-alias-state-warn-primary: rgb(245, 158, 11);
+  --dsw-alias-state-warn-secondary: rgb(247, 173, 49);
+  --dsw-alias-state-error-secondary: rgb(242, 90, 90);
+  --dsw-alias-label-error: rgb(242, 90, 90);
+  --dsw-alias-label-inverse: #ffffff;
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-shadow-lv3: 0 0 1px 0 rgba(0, 0, 0, .2), 0 0 4px 0 rgba(0, 0, 0, .02), 0 12px 32px 0 rgba(0, 0, 0, .08);
+  color-scheme: dark;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);
   font: 13px/1.6 var(--dsw-font-family, "Segoe UI", system-ui, sans-serif); }
@@ -631,10 +657,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 24px; }
 .status { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .empty { color: var(--dsw-alias-label-tertiary); text-align: center; padding: 60px 0; font-size: 13px; }
 .skeleton { background: var(--dsw-alias-bg-layer-2); border-radius: 10px; height: 140px; }
-.modal-mask { position: fixed; inset: 0; background: var(--dsw-alias-bg-mask-1); z-index: 30;
+.modal-mask { position: fixed; inset: 0; background: var(--dsw-alias-bg-mask-3, rgba(0,0,0,.48)); z-index: 30;
   display: flex; align-items: center; justify-content: center; }
-.modal { background: var(--dsw-alias-bg-overlay); border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px; box-shadow: var(--dsw-shadow-lv2); width: 560px; max-width: 92vw;
+.modal { background: var(--dsw-alias-bg-layer-2, #232324);
+  border-radius: 16px; box-shadow: var(--dsw-shadow-lv3, 0 12px 40px rgba(0,0,0,.5)); width: 560px; max-width: 92vw;
   max-height: 80vh; display: flex; flex-direction: column; padding: 20px; gap: 10px; }
 .modal h2 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px;
   color: var(--dsw-alias-label-primary); }

@@ -1,9 +1,9 @@
 /**
- * 构建脚本：生成 lib/ 发布产物。
- * - lib/index.js  host 端（ESM bundle，商店页面 + API + 安装引擎）
- * - lib/client.js  client bundle（CJS + __ModuleLoader__.load 包装）
+ * 构建脚本：生成 lib/ 发布产物（本地 esbuild，不经 npx 子进程）。
+ * - lib/index.js  host 端（ESM bundle，商店页面内嵌）
+ * - lib/client.js  client bundle（CJS + __ModuleLoader__ 包装）
  */
-import { execSync } from 'node:child_process'
+import * as esbuild from 'esbuild'
 import { mkdirSync, rmSync, readFileSync } from 'node:fs'
 
 const ID = 'dsh-store'
@@ -11,21 +11,30 @@ rmSync('lib', { recursive: true, force: true })
 mkdirSync('lib', { recursive: true })
 
 // 1. host 端：ESM bundle
-execSync(
-  `npx esbuild src/index.js --bundle --format=esm --platform=node --target=es2022 ` +
-  `--external:node:fs --external:node:path --external:node:url --external:node:child_process --external:@deepseek-ai/* ` +
-  `--outfile=lib/index.js`,
-  { stdio: 'inherit' })
+await esbuild.build({
+  entryPoints: ['src/index.js'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2022',
+  external: ['node:fs', 'node:path', 'node:url', 'node:child_process', '@deepseek-ai/*'],
+  outfile: 'lib/index.js',
+})
 
 // 2. client bundle：CJS + load 包装（官方格式）
 const banner = `window.__ModuleLoader__.load({ id: ${JSON.stringify(ID)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports; Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });`
 const footer = `return module.exports; } });`
-execSync(
-  `npx esbuild src/client-source.js --bundle --format=cjs --platform=browser --target=es2022 ` +
-  `--external:react --external:react/jsx-runtime --external:@deepseek-ai/* ` +
-  `--banner:js=${JSON.stringify(banner)} --footer:js=${JSON.stringify(footer)} ` +
-  `--outfile=lib/client.js`,
-  { stdio: 'inherit' })
+await esbuild.build({
+  entryPoints: ['src/client-source.js'],
+  bundle: true,
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2022',
+  external: ['react', 'react/jsx-runtime', '@deepseek-ai/*'],
+  banner: { js: banner },
+  footer: { js: footer },
+  outfile: 'lib/client.js',
+})
 
 // 3. 校验产物
 const host = readFileSync('lib/index.js', 'utf8')
