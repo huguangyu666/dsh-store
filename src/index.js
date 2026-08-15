@@ -919,7 +919,7 @@ function openModal(p) {
     fetch('/plugin-store/api/readme?name=' + encodeURIComponent(name)).then(function (r) { return r.json(); }).then(function (d) {
       var box = mask.querySelector('.readme-box');
       if (!box) return;
-      if (d.text) box.textContent = d.text.slice(0, 3000) + (d.text.length > 3000 ? '\n…（已截断）' : '');
+      if (d.text) box.textContent = d.text.slice(0, 3000) + (d.text.length > 3000 ? ' …（已截断）' : '');
       else box.textContent = '（无 README）';
     }).catch(function () {
       var box = mask.querySelector('.readme-box');
