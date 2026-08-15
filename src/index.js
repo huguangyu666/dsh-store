@@ -601,6 +601,26 @@ async function updatePlugin(name) {
   return installPlugin(entry)
 }
 
+
+/** 获取插件 README 摘要（优先本地已安装，其次 npm registry） */
+async function getPluginReadme(name) {
+  // 1. 本地已安装：profile node_modules 里的 README
+  const local = join(getProfileDir(), 'node_modules', name, 'README.md')
+  try {
+    if (existsSync(local)) {
+      const text = readFileSync(local, 'utf8')
+      return { source: 'local', text: text.slice(0, 8000) }
+    }
+  } catch { /* 忽略 */ }
+  // 2. npm registry：从 packument 拿 readme（需要 GET 完整包信息）
+  try {
+    const data = await httpGetJson('https://registry.npmjs.org/' + encodeURIComponent(name).replace(/%40/g, '@'), { timeout: 15 })
+    const readme = data.readme || data.versions?.[data['dist-tags']?.latest]?.readme
+    if (readme) return { source: 'npm', text: String(readme).slice(0, 8000) }
+  } catch { /* 忽略 */ }
+  return { source: 'none', text: '' }
+}
+
 /** 启用/停用一个已安装插件（写 cordis.patch.yml 的 disabled 标记，HMR 实时生效） */
 function togglePlugin(name, enable) {
   const patch = readProfilePatch()
@@ -878,6 +898,7 @@ function openModal(p) {
   if (p.category) h += '<div class="meta"><span>' + esc(catZh(p.category)) + '</span></div>';
   h += '<div class="desc-full">' + esc(p.description || '（无描述）') + '</div>';
   h += '<div class="meta"><span class="star">★ ' + (p.stars || 0) + '</span><span>' + esc(p.author || '') + '</span><span>v' + esc(p.version || '?') + '</span><span>' + esc(p.date || '').slice(0, 10) + '</span></div>';
+  h += '<div class="readme-box" style="margin-top:8px;border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px;max-height:220px;overflow-y:auto;font-size:12.5px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap">加载 README…</div>';
   if (p.homepage) h += '<a href="' + esc(p.homepage) + '" target="_blank">' + esc(p.homepage) + '</a>';
   h += '<div class="card-foot">';
   if (p.installed) {
@@ -893,6 +914,18 @@ function openModal(p) {
   mask.innerHTML = h;
   root.innerHTML = '';
   root.appendChild(mask);
+  // 异步加载 README 摘要
+  (function (name) {
+    fetch('/plugin-store/api/readme?name=' + encodeURIComponent(name)).then(function (r) { return r.json(); }).then(function (d) {
+      var box = mask.querySelector('.readme-box');
+      if (!box) return;
+      if (d.text) box.textContent = d.text.slice(0, 3000) + (d.text.length > 3000 ? '\n…（已截断）' : '');
+      else box.textContent = '（无 README）';
+    }).catch(function () {
+      var box = mask.querySelector('.readme-box');
+      if (box) box.textContent = '（README 加载失败）';
+    });
+  })(p.name);
   var btns = mask.querySelectorAll('button[data-act]');
   for (var j = 0; j < btns.length; j++) btns[j].onclick = function () {
     var a = this.getAttribute('data-act');
@@ -1209,6 +1242,23 @@ export function apply(ctx) {
         const name = String(body.name ?? '').trim()
         if (!name) { sendJson(res, 400, { error: '缺少插件名' }); return }
         const result = await updatePlugin(name)
+        sendJson(res, 200, result)
+      } catch (e) {
+        sendJson(res, 500, { error: e.message })
+      }
+    },
+  })
+
+  // 插件 README API
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/plugin-store/api/readme',
+    handler: async (req, res) => {
+      try {
+        const url = new URL(req.url, 'http://localhost')
+        const name = url.searchParams.get('name') || ''
+        if (!name) { sendJson(res, 400, { error: '缺少插件名' }); return }
+        const result = await getPluginReadme(name)
         sendJson(res, 200, result)
       } catch (e) {
         sendJson(res, 500, { error: e.message })
