@@ -533,26 +533,91 @@ function uninstallPlugin(entry) {
 }
 
 /** 已安装列表：dsh.profile.bundles + 依赖 + patch 行 三源合并 */
+/** 已安装列表：返回 [{ id, name, disabled }]（三源合并 + 停用状态） */
 function installedPlugins() {
   const profileDir = getProfileDir()
-  const installed = []
-  // 源 1：dsh.profile.bundles（官方 dsh plugin add 路径）
-  for (const b of readProfileBundles()) {
-    if (!installed.includes(b)) installed.push(b)
+  const patchText = readProfilePatch().text
+  const known = new Map() // name -> { id, name, disabled }
+  const add = (id, name) => {
+    if (!name || known.has(name)) return
+    const idEsc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const disabled = new RegExp('- id:\\s*' + idEsc + '\\b[\\s\\S]*?disabled:\\s*true').test(patchText)
+    known.set(name, { id, name, disabled })
   }
-  // 源 2：package.json dependencies（手写 pnpm 路径）
+  for (const b of readProfileBundles()) {
+    if (b.startsWith("@deepseek-ai/")) continue
+    add(b.replace(/^dsh-plugin-/, "").replace(/^dsh-/, ""), b)
+  }
   try {
-    const pkgJson = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+    const pkgJson = JSON.parse(readFileSync(join(profileDir, "package.json"), "utf8"))
     for (const dep of Object.keys(pkgJson.dependencies ?? {})) {
-      if ((dep.startsWith('dsh-') || dep.startsWith('@')) && !installed.includes(dep)) installed.push(dep)
+      if ((dep.startsWith("dsh-") || dep.startsWith("@")) && !dep.startsWith("@deepseek-ai/")) {
+        add(dep.replace(/^dsh-plugin-/, "").replace(/^dsh-/, ""), dep)
+      }
     }
   } catch { /* 无 package.json */ }
-  // 源 3：patch 行（纯 cordis.patch.yml insert 路径）
-  const rows = parseInsertRows(readProfilePatch().text)
-  for (const row of rows) {
-    if (!installed.includes(row.name)) installed.push(row.name)
+  for (const row of parseInsertRows(patchText)) {
+    add(row.id, row.name)
   }
-  return installed
+  return [...known.values()]
+}
+
+/** 启用/停用一个已安装插件（写 cordis.patch.yml 的 disabled 标记，HMR 实时生效） */
+function togglePlugin(name, enable) {
+  const patch = readProfilePatch()
+  const patchText = patch.text
+  const row = parseInsertRows(patchText).find((r) => r.name === name)
+  if (!row) throw new Error("未找到插件 " + name + " 的 patch 条目")
+  const idEsc = row.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const idRe = new RegExp('- id:\\s*' + idEsc + '\\b')
+  const hasDisable = new RegExp('- id:\\s*' + idEsc + '\\b[\\s\\S]*?disabled:\\s*true').test(patchText)
+  const lines = patchText.split('\n')
+  if (enable && hasDisable) {
+    // 启用：删除该条目块内的 disabled: true 行（可能跟在 name 后）
+    const out = []
+    let inBlock = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (idRe.test(line)) { inBlock = true; out.push(line); continue }
+      if (inBlock) {
+        // 遇到下一个 - id: 或 - insert: 则退出块
+        if (/^\s*- id:/.test(line) || /^\s*- insert:/.test(line)) { inBlock = false; out.push(line); continue }
+        // 块内跳过 disabled: true 行
+        if (/disabled:\s*true/.test(line)) continue
+        out.push(line)
+        continue
+      }
+      out.push(line)
+    }
+      writeFileSync(patch.path, out.join(String.fromCharCode(10)))
+    return { ok: true, name, enabled: true, via: "patch" }
+  }
+  if (!enable && !hasDisable) {
+    // 停用：在该条目块末尾（name 行后）加 disabled: true
+    const out = []
+    let inBlock = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (idRe.test(line)) { inBlock = true; out.push(line); continue }
+      if (inBlock) {
+        // 遇到下一个 - id: 或 - insert: → 块结束，先补 disabled 再处理当前行
+        if (/^\s*- id:/.test(line) || /^\s*- insert:/.test(line)) {
+          out.push("  disabled: true")
+          inBlock = false
+          out.push(line)
+          continue
+        }
+        // 块内普通行（name 等）正常保留
+        out.push(line)
+        continue
+      }
+      out.push(line)
+    }
+    if (inBlock) out.push("  disabled: true") // 块在文件末尾结束
+    writeFileSync(patch.path, out.join(String.fromCharCode(10)))
+    return { ok: true, name, enabled: false, via: "patch" }
+  }
+  return { ok: true, name, enabled: enable, via: "noop" }
 }
 
 /** 重启 dsh（独立进程：等 2 秒 → 杀 dsh web → 重新拉起） */
@@ -739,6 +804,11 @@ function render() {
     h += '<span class="star">★ ' + (p.stars || 0) + '</span><span>' + esc(p.author || '未知作者') + '</span><span>v' + esc(p.version || '?') + '</span></div>';
     h += '<div class="card-foot">';
     if (isInst) {
+      if (p.disabled) {
+        h += '<button class="inst-btn ghost" data-act="toggle" data-enable="1" data-name="' + esc(p.name) + '">启用</button>';
+      } else {
+        h += '<button class="inst-btn ghost" data-act="toggle" data-enable="0" data-name="' + esc(p.name) + '">停用</button>';
+      }
       h += '<button class="inst-btn danger" data-act="uninstall" data-name="' + esc(p.name) + '">卸载</button>';
     } else if (notNpm) {
       h += '<a class="inst-btn ghost" href="' + esc(p.homepage) + '" target="_blank" style="text-decoration:none">GitHub</a>';
@@ -801,6 +871,21 @@ function act(kind, name, btn) {
   }
   var stat = btn.parentElement.querySelector('.status');
   btn.disabled = true;
+  if (kind === 'toggle') {
+    var enable = btn.getAttribute('data-enable') === '1';
+    stat.textContent = enable ? '启用中…' : '停用中…';
+    fetch('/plugin-store/api/toggle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, enable: enable }),
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (x) {
+      btn.disabled = false;
+      if (!x.ok) { stat.textContent = '失败'; banner(x.d.error || '操作失败', true); return; }
+      load(true);
+      stat.textContent = '';
+      banner((enable ? '已启用 ' : '已停用 ') + name + '。HMR 实时生效，无需重启。');
+    }).catch(function (e) { btn.disabled = false; stat.textContent = '失败'; banner(e.message, true); });
+    return;
+  }
   stat.textContent = kind === 'install' ? '安装中…' : '卸载中…';
   fetch('/plugin-store/api/' + kind, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -901,10 +986,11 @@ export function apply(ctx) {
 
   // 目录带已安装状态
   function catalogWithInstalled(catalog) {
-    const installed = installedPlugins()
+      const installedNames = new Set(installedPlugins().map((i) => i.name))
+      const disabledMap = new Map(installedPlugins().filter((i) => i.disabled).map((i) => [i.name, true]))
     return {
       ...catalog,
-      plugins: (catalog?.plugins ?? []).map((p) => ({ ...p, installed: installed.includes(p.name) })),
+        plugins: (catalog?.plugins ?? []).map((p) => ({ ...p, installed: installedNames.has(p.name), disabled: disabledMap.has(p.name) })),
     }
   }
 
@@ -989,6 +1075,37 @@ export function apply(ctx) {
     })
   }
 
+  // 已安装列表 API（含停用状态）
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/plugin-store/api/installed',
+    handler: async (req, res) => {
+      try {
+        sendJson(res, 200, { installed: installedPlugins() })
+      } catch (e) {
+        sendJson(res, 500, { error: e.message })
+      }
+    },
+  })
+
+  // 启用/停用 API
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/plugin-store/api/toggle',
+    handler: async (req, res) => {
+      try {
+        const body = await readBody(req).catch(() => ({}))
+        const name = String(body.name ?? '').trim()
+        const enable = body.enable !== false
+        if (!name) { sendJson(res, 400, { error: '缺少插件名' }); return }
+        const result = togglePlugin(name, enable)
+        sendJson(res, 200, result)
+      } catch (e) {
+        sendJson(res, 500, { error: e.message })
+      }
+    },
+  })
+
   // 重启 API
   ctx.webServer.register({
     kind: 'exact',
@@ -1010,7 +1127,7 @@ export function apply(ctx) {
     handler: async () => {
       try {
         const catalog = readCatalogCache()
-        const installed = installedPlugins()
+        const installed = installedPlugins().map((i) => i.name)
         const lines = [
           `dsh 插件商店：http://127.0.0.1:3080/plugin-store`,
           `已收录 ${catalog?.plugins?.length ?? '（目录未生成，访问页面自动拉取）'} 个插件，已安装 ${installed.length} 个`,

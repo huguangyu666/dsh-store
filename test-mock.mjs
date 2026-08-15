@@ -102,6 +102,24 @@ if (nonNpmEntry) {
   console.log('INFO 无未上 npm 条目可测，跳过')
 }
 
+// 3.6 启用/停用（toggle）
+// 重新安装以便测试 toggle
+await routes.get('/plugin-store/api/install').handler(mockReq({ name: 'dsh-plugin-notify' }), mockRes())
+const tglRes = mockRes()
+await routes.get('/plugin-store/api/toggle').handler(mockReq({ name: 'dsh-plugin-notify', enable: false }), tglRes)
+const tgl = JSON.parse(tglRes.body)
+check('停用成功', tglRes.statusCode === 200 && tgl.enabled === false, JSON.stringify(tgl))
+const patchAfterDisable = readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8')
+check('patch 含 disabled: true', /disabled:\s*true/.test(patchAfterDisable))
+const tglRes2 = mockRes()
+await routes.get('/plugin-store/api/toggle').handler(mockReq({ name: 'dsh-plugin-notify', enable: true }), tglRes2)
+const tgl2 = JSON.parse(tglRes2.body)
+check('启用成功', tglRes2.statusCode === 200 && tgl2.enabled === true)
+const patchAfterEnable = readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8')
+check('启用后移除 disabled', !/disabled:\s*true/.test(patchAfterEnable))
+// 卸载清理
+await routes.get('/plugin-store/api/uninstall').handler(mockReq({ name: 'dsh-plugin-notify' }), mockRes())
+
 // 4. 命令
 const cmdRes = await commands.get('plugin-store').handler({ rawInput: '' })
 check('命令返回摘要', cmdRes?.kind === 'success' && cmdRes.text.includes('plugin-store'))
