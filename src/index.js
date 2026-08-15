@@ -562,6 +562,45 @@ function installedPlugins() {
   return [...known.values()]
 }
 
+
+/** 读取本地已安装插件的版本（从 profile node_modules） */
+function getInstalledVersion(name) {
+  try {
+    const p = JSON.parse(readFileSync(join(getProfileDir(), 'node_modules', name, 'package.json'), 'utf8'))
+    return p.version
+  } catch { return undefined }
+}
+
+/** 查询 npm registry 最新版本 */
+async function getLatestVersion(name) {
+  try {
+    const data = await httpGetJson('https://registry.npmjs.org/' + encodeURIComponent(name).replace(/%40/g, '@') + '/latest', { timeout: 10 })
+    return data.version
+  } catch { return undefined }
+}
+
+/** 检查已安装插件更新：返回 [{ name, local, latest, updateAvailable }] */
+async function checkUpdates() {
+  const installed = installedPlugins()
+  const results = []
+  for (const item of installed) {
+    const local = getInstalledVersion(item.name)
+    const latest = await getLatestVersion(item.name)
+    if (local && latest && local !== latest) {
+      results.push({ name: item.name, local, latest, updateAvailable: true })
+    } else if (local && latest) {
+      results.push({ name: item.name, local, latest, updateAvailable: false })
+    }
+  }
+  return results
+}
+
+/** 更新一个插件（复用 installPlugin 的官方 dsh plugin add） */
+async function updatePlugin(name) {
+  const entry = { name, repo: '', installKind: 'npm' }
+  return installPlugin(entry)
+}
+
 /** 启用/停用一个已安装插件（写 cordis.patch.yml 的 disabled 标记，HMR 实时生效） */
 function togglePlugin(name, enable) {
   const patch = readProfilePatch()
@@ -1099,6 +1138,37 @@ export function apply(ctx) {
         const enable = body.enable !== false
         if (!name) { sendJson(res, 400, { error: '缺少插件名' }); return }
         const result = togglePlugin(name, enable)
+        sendJson(res, 200, result)
+      } catch (e) {
+        sendJson(res, 500, { error: e.message })
+      }
+    },
+  })
+
+  // 更新检查 API
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/plugin-store/api/updates',
+    handler: async (req, res) => {
+      try {
+        const updates = await checkUpdates()
+        sendJson(res, 200, { updates })
+      } catch (e) {
+        sendJson(res, 500, { error: e.message })
+      }
+    },
+  })
+
+  // 更新插件 API
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/plugin-store/api/update',
+    handler: async (req, res) => {
+      try {
+        const body = await readBody(req).catch(() => ({}))
+        const name = String(body.name ?? '').trim()
+        if (!name) { sendJson(res, 400, { error: '缺少插件名' }); return }
+        const result = await updatePlugin(name)
         sendJson(res, 200, result)
       } catch (e) {
         sendJson(res, 500, { error: e.message })
