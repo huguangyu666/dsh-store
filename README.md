@@ -19,15 +19,15 @@ DeepSeek Harness 插件商店：**上游基础设施**。聚合 npm registry + a
 
 ## 功能
 
-- **聚合目录**：npm registry 关键词精确搜索（`keywords:dsh-plugin`）+ awesome-dsh-plugin 精选（324 个，11 分类）+ GitHub 星标合并，550+ 插件
-- **精选叠加**：awesome 人工精选插件打「精选」徽章 + 分类；未上 npm 的精选显示 GitHub 跳转
+- **聚合目录**：npm registry 关键词精确搜索（`keywords:dsh-plugin`）+ awesome-dsh-plugin 精选（324 个，11 分类）+ AdamPlatin123 自动雷达（运行级验证）+ GitHub 星标合并，750+ 插件
+- **精选叠加**：awesome 人工精选插件打「精选」徽章 + 分类；雷达验证通过的显示「雷达验证」徽章；未上 npm 的精选显示 GitHub 跳转
 - **质量过滤**：后台验证每个包的 `package.json` 是否有 `dsh` 字段（真插件标记），剔除噪声
 - **一键安装**：官方 `dsh plugin add`（自动 reconcile `dsh.profile.bundles`），失败回退 `pnpm add` + patch 合并
 - **一键卸载**：官方 `dsh plugin remove`，自动清理 patch 残留
-- **一键重启**：装完直接重启 dsh 生效
-- **已安装标记**：目录里每个插件显示「已安装 / 可安装」
-- **一键重启**：装完直接重启 dsh 生效（独立进程，断连后自动重连）
-- **已安装标记**：目录里每个插件显示「已安装 / 可安装」
+- **已安装管理**：已安装插件可一键「停用 / 启用」（写 `cordis.patch.yml` 的 disabled，HMR 实时生效，无需重启）
+- **更新检查**：一键检查所有已安装插件是否有新版本，列出可更新项，一键更新
+- **详情 README**：点插件详情异步加载 README 摘要（本地优先，npm 兜底）
+- **一键重启**：装完需要重启的改动提供一键重启
 - **命令**：`/plugin-store`（摘要）、`/plugin-install <包名>`（直接安装）
 
 ## 安装
