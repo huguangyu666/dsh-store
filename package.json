@@ -1,6 +1,6 @@
 {
   "name": "dsh-store",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "DeepSeek Harness 插件商店：npm 权威源 + awesome 精选 + 自动雷达（550+ 插件、11 分类、运行级验证），官方 dsh plugin add/remove 一键安装卸载，dsh 原生 UI",
   "type": "module",
   "main": "lib/index.js",
