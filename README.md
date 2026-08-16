@@ -52,7 +52,9 @@ profile patch（`~/.dsh/profiles/<profile>/cordis.patch.yml`）：
 
 - **浏览**：搜索 / 分类筛选 / 按星标·最新·名称排序，卡片显示精选徽章、描述、作者、版本、星标
 - **安装**：点「安装」→ 官方 `dsh plugin add` → 点「立即重启」生效
-- **详情**：点卡片看完整描述、分类与仓库链接；未上 npm 的精选跳 GitHub
+- **已安装管理**：已安装插件显示「停用 / 启用」按钮（写 `cordis.patch.yml` 的 disabled，HMR 实时生效，无需重启）
+- **更新检查**：顶部「检查更新」按钮 → 列出可更新插件 → 一键更新
+- **详情**：点卡片看完整描述、分类、README 摘要与仓库链接；未上 npm 的精选跳 GitHub
 - **命令行**：`/plugin-install dsh-plugin-xxx`
 
 ### 配置
