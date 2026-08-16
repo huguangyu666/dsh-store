@@ -627,52 +627,38 @@ function togglePlugin(name, enable) {
   const patchText = patch.text
   const row = parseInsertRows(patchText).find((r) => r.name === name)
   if (!row) throw new Error("未找到插件 " + name + " 的 patch 条目")
-  const idEsc = row.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const idRe = new RegExp('- id:\\s*' + idEsc + '\\b')
-  const hasDisable = new RegExp('- id:\\s*' + idEsc + '\\b[\\s\\S]*?disabled:\\s*true').test(patchText)
-  const lines = patchText.split('\n')
+  const idEsc = row.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const idRe = new RegExp("- id:\\s*" + idEsc + "\\b")
+  const lines = patchText.split(String.fromCharCode(10))
+
+  let blockStart = -1
+  let blockEnd = lines.length
+  for (let i = 0; i < lines.length; i++) {
+    if (idRe.test(lines[i])) { blockStart = i; break }
+  }
+  if (blockStart === -1) throw new Error("未找到插件 " + name + " 的 patch 条目")
+  for (let i = blockStart + 1; i < lines.length; i++) {
+    if (/^\s*- id:/.test(lines[i]) || /^\s*- insert:/.test(lines[i])) { blockEnd = i; break }
+  }
+  const blockLines = lines.slice(blockStart, blockEnd)
+  const hasDisable = blockLines.some((l) => /disabled:\s*true/.test(l))
+
   if (enable && hasDisable) {
-    // 启用：删除该条目块内的 disabled: true 行（可能跟在 name 后）
-    const out = []
-    let inBlock = false
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      if (idRe.test(line)) { inBlock = true; out.push(line); continue }
-      if (inBlock) {
-        // 遇到下一个 - id: 或 - insert: 则退出块
-        if (/^\s*- id:/.test(line) || /^\s*- insert:/.test(line)) { inBlock = false; out.push(line); continue }
-        // 块内跳过 disabled: true 行
-        if (/disabled:\s*true/.test(line)) continue
-        out.push(line)
-        continue
-      }
+    const out = lines.slice(0, blockStart)
+    for (const line of blockLines) {
+      if (/disabled:\s*true/.test(line)) continue
       out.push(line)
     }
-      writeFileSync(patch.path, out.join(String.fromCharCode(10)))
+    out.push(...lines.slice(blockEnd))
+    writeFileSync(patch.path, out.join(String.fromCharCode(10)))
     return { ok: true, name, enabled: true, via: "patch" }
   }
   if (!enable && !hasDisable) {
-    // 停用：在该条目块末尾（name 行后）加 disabled: true
-    const out = []
-    let inBlock = false
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      if (idRe.test(line)) { inBlock = true; out.push(line); continue }
-      if (inBlock) {
-        // 遇到下一个 - id: 或 - insert: → 块结束，先补 disabled 再处理当前行
-        if (/^\s*- id:/.test(line) || /^\s*- insert:/.test(line)) {
-          out.push("  disabled: true")
-          inBlock = false
-          out.push(line)
-          continue
-        }
-        // 块内普通行（name 等）正常保留
-        out.push(line)
-        continue
-      }
-      out.push(line)
-    }
-    if (inBlock) out.push("  disabled: true") // 块在文件末尾结束
+    // 去掉末尾空行，确保 disabled 紧跟块内容
+    const trimmed = lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines
+    const out = trimmed.slice(0, blockEnd)
+    out.push("      disabled: true")
+    out.push(...trimmed.slice(blockEnd))
     writeFileSync(patch.path, out.join(String.fromCharCode(10)))
     return { ok: true, name, enabled: false, via: "patch" }
   }
