@@ -1,4 +1,4 @@
-# dsh-plugin-store bundle patch：挂载插件自身
+# dsh-store bundle patch：挂载插件自身
 - insert:
     - id: plugin-store
-      name: 'dsh-plugin-store'
+      name: 'dsh-store'

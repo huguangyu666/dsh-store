@@ -190,34 +190,68 @@ async function fetchAwesomeList() {
   return items
 }
 
-/** 拉取 AdamPlatin123 自动雷达的验证状态 → Map<repo, status>（✅ 运行级可用 / ⏳ 未测 / ❌ 失败等） */
+/** 拉取 AdamPlatin123 自动雷达的验证状态 → Map<repo, status>（[可用] / [待定] / [未测] / [不兼容] 等，缓存 24h）
+ * 雷达 2026-09 起把状态从 README 表格迁移到 catalog/all/<分类>.md 明细页；
+ * 先拉 PLUGINS-ALL.md 索引取分类文件列表，再一次 curl 并行拉全部分类文件解析。
+ */
+const RADAR_CACHE = join(homeDir, '.dsh', 'plugin-store', 'radar.json')
 async function fetchRadarStatus() {
-  const url = 'https://raw.githubusercontent.com/AdamPlatin123/awesome-dsh-plugins/main/README.md'
-  let md = ''
+  const ttl = 24 * 60 * 60 * 1000
   try {
+    const st = statSync(RADAR_CACHE)
+    if (Date.now() - st.mtimeMs < ttl) {
+      const cached = JSON.parse(readFileSync(RADAR_CACHE, 'utf8'))
+      if (cached && typeof cached === 'object') return new Map(Object.entries(cached))
+    }
+  } catch { /* 无缓存 */ }
+
+  const base = 'https://raw.githubusercontent.com/AdamPlatin123/awesome-dsh-plugins/main/'
+  const curl = (args) => new Promise((resolve, reject) => {
     const env = { ...process.env }
     if (loadConfig().proxy) { env.HTTPS_PROXY = loadConfig().proxy; env.HTTP_PROXY = loadConfig().proxy }
-    md = await new Promise((resolve, reject) => {
-      execFile('curl', ['-sS', '--max-time', '30', url], { encoding: 'utf8', env, windowsHide: true, timeout: 40000 }, (err, stdout, stderr) => {
-        if (err || !stdout) return reject(new Error('雷达拉取失败' + (stderr ? '：' + stderr.slice(0, 150) : '')))
-        resolve(stdout)
-      })
+    execFile('curl', ['-sS', '--max-time', '40', ...args], { encoding: 'utf8', env, windowsHide: true, timeout: 60000, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error('雷达拉取失败' + (stderr ? '：' + stderr.slice(0, 150) : '')))
+      resolve(stdout)
     })
+  })
+  try {
+    const index = await curl([`${base}PLUGINS-ALL.md`])
+    // 分类明细链接：[明细](catalog/all/市场与管理.md)（URL 可能带 %20 编码）
+    const files = [...index.matchAll(/\]\((catalog\/all\/[^)]+\.md)\)/g)].map((m) => m[1])
+    // 明细行：- 🟩 `[可用]` [name](https://github.com/owner/repo) ★N — desc
+    const statusByRepo = new Map()
+    const parseStatusLines = (md) => {
+      for (const line of md.split('\n')) {
+        const m = line.match(/^-\s+\S+\s+`(\[[^\]]+\])`\s+\[[^\]]*\]\(https:\/\/github\.com\/([^)\s]+)\)/)
+        if (m) statusByRepo.set(m[2].replace(/\/+$/, '').replace(/#.*$/, '').toLowerCase(), m[1])
+      }
+    }
+    if (files.length) {
+      const md = await curl(files.map((f) => base + encodeURI(f)))
+      parseStatusLines(md)
+    }
+    // 兼容旧 README 表格口径（雷达若改回 README 呈现仍可用）
+    const readme = await curl([`${base}README.md`])
+    for (const line of readme.split('\n')) {
+      const m = line.match(/^\|\s*\[[^\]]+\]\(https:\/\/github\.com\/([^)\s]+)\)\s*\|\s*[^|]+\|\s*([^|]+?)\s*\|/)
+      if (m) {
+        const repo = m[1].replace(/\/+$/, '').replace(/#.*$/, '').toLowerCase()
+        if (!statusByRepo.has(repo)) statusByRepo.set(repo, m[2].trim())
+      }
+    }
+    if (statusByRepo.size) {
+      ensureStoreDirs()
+      writeFileSync(RADAR_CACHE, JSON.stringify(Object.fromEntries(statusByRepo), null, 2))
+    }
+    return statusByRepo
   } catch (e) {
     console.warn('[plugin-store] AdamPlatin123 雷达拉取失败（跳过）:', e.message)
+    try {
+      const cached = JSON.parse(readFileSync(RADAR_CACHE, 'utf8'))
+      if (cached && typeof cached === 'object') return new Map(Object.entries(cached))
+    } catch { /* 无缓存 */ }
     return new Map()
   }
-  // 表格行：| [name](https://github.com/owner/repo) | 社区/官方 | ✅ 运行级可用 | desc |
-  const statusByRepo = new Map()
-  for (const line of md.split('\n')) {
-    const m = line.match(/^\|\s*\[[^\]]+\]\(https:\/\/github\.com\/([^)\s]+)\)\s*\|\s*[^|]+\|\s*([^|]+?)\s*\|/)
-    if (m) {
-      const repo = m[1].replace(/\/+$/, '').replace(/#.*$/, '')
-      const status = m[2].trim()
-      statusByRepo.set(repo.toLowerCase(), status)
-    }
-  }
-  return statusByRepo
 }
 
 /** 验证包确实是 dsh 插件（package.json 有 dsh 字段），带 7 天缓存 */
@@ -843,7 +877,7 @@ function render() {
     if (verified) h += '<span class="badge verified">已验证</span>';
     if (isInst) h += '<span class="badge installed">已安装</span>';
     if (notNpm) h += '<span class="badge nonpm">未上 npm</span>';
-    if (p.radarStatus && p.radarStatus.indexOf('✅') >= 0) h += '<span class="badge radar">雷达验证</span>';
+    if (p.radarStatus && (p.radarStatus.indexOf('✅') >= 0 || p.radarStatus.indexOf('[可用]') >= 0)) h += '<span class="badge radar" title="' + esc(p.radarStatus) + '">雷达验证</span>';
     h += '</div>';
     h += '<div class="desc">' + esc(p.description || '（无描述）') + '</div>';
     h += '<div class="meta">';

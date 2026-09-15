@@ -43,16 +43,18 @@ const name = "dsh-store";
 const inject = ["slots"];
 
 function apply(ctx) {
-  ctx.effect(() => {
-    const disposers = [];
-    disposers.push(ctx.slots.register(
+  ctx.slots.inject("sidebar.footer.action", () =>
+    ctx.slots.register(
       { name: "sidebar.footer.action", id: "dsh-store", order: 5, label: "插件商店" },
-      StoreButton));
-    disposers.push(ctx.slots.register(
+      StoreButton
+    )
+  );
+  ctx.slots.inject("settings.section", () =>
+    ctx.slots.register(
       { name: "settings.section", id: "dsh-store", order: 110, label: "插件商店" },
-      StoreSettingsSection));
-    return () => disposers.forEach((d) => d());
-  });
+      StoreSettingsSection
+    )
+  );
 }
 
 module.exports = { name, inject, apply };

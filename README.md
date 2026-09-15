@@ -33,7 +33,7 @@ DeepSeek Harness 插件商店：**上游基础设施**。聚合 npm registry + a
 ## 安装
 
 ```bash
-npm i dsh-plugin-store
+npm i dsh-store
 ```
 
 profile patch（`~/.dsh/profiles/<profile>/cordis.patch.yml`）：

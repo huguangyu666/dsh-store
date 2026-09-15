@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.3] - 2026-09-15
+
+### Fixed
+- 修复 `cordis.patch.yml` 中 bundle patch insert name 误写为 `dsh-plugin-store` 的致命错误，改为正确的包名 `dsh-store`（避免 dsh web 启动因 ERR_MODULE_NOT_FOUND 崩溃）(#1)
+- 修复 README 中安装命令 `npm i dsh-plugin-store` 为 `npm i dsh-store`
+- 客户端槽位注册改为 `ctx.slots.inject()` 机制，避免因父 slot 声明时序导致报错
+- 适配 AdamPlatin123 自动雷达新版分类目录结构及状态解析
+
 ## [0.5.2] - 2026-08-16
 
 ### Fixed
